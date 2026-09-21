@@ -27,6 +27,7 @@ Uso local, um usuário, sem login e sem serviço externo.
 | `solar.py` | Cálculo da economia mensal e do retorno do sistema de energia solar |
 | `patrimonio.py` | Série do patrimônio realizado e projeção para os próximos 12 meses |
 | `auth.py` | Login: hash PBKDF2 da senha, tela de entrada e botão de sair |
+| `tema.py` | Identidade visual: paleta, CSS global, número-herói e eixo dos gráficos |
 | `migrar_para_postgres.py` | Carga única dos dados locais para o Supabase |
 
 ## Convenções
@@ -85,6 +86,24 @@ Uso local, um usuário, sem login e sem serviço externo.
   sem aporte o valor não apareceria no patrimônio. Nunca recebem lançamento de rendimento.
   `db.registrar_devolucao` grava o resgate, baixa o capital e encerra o investimento
   quando `saldo_emprestimo` chega a zero; devolução maior que o saldo é recusada.
+
+## Identidade visual
+
+- Paleta validada pelo método de data-viz: **verde `#1baf7a`** (realizado, rendimento),
+  **azul `#2a78d6`** (patrimônio/capital), **cinza `#9aa0a6`** (previsto e estimativa).
+  Passa nos testes de daltonismo; o verde tem contraste 2,74 sobre o fundo claro, então
+  só aparece em marcas (barras, linhas, selos com fundo) — **nunca como cor de texto**.
+- Tema claro definido em `.streamlit/config.toml`; o CSS global vive em
+  `tema.aplicar_estilo()`, chamado uma vez no topo de `app.py`.
+- Cada página começa com `tema.cabecalho(titulo, subtitulo)`; a tela principal usa
+  `tema.numero_heroi(...)` para o patrimônio. O herói recebe HTML puro — **não** passe o
+  texto por `md()` ali, senão a barra invertida do escape aparece na tela; use `&nbsp;`
+  para os espaços do selo, que o Streamlit remove ao sanitizar o HTML.
+- Gráficos Altair passam por `tema.eixo_limpo(...)`: sem grade vertical, grade
+  horizontal discreta, eixos recessivos. Barras com canto arredondado de 4px no topo.
+- Navegação: `st.navigation` com três grupos (Acompanhar, Registrar, Ferramentas). Ela
+  é sempre renderizada no topo da barra lateral — o que for escrito antes aparece
+  **abaixo** dela, por isso a marca fica no rodapé.
 
 ## Ao alterar
 

@@ -17,6 +17,7 @@ import db
 import importador
 import patrimonio
 import solar
+import tema
 
 st.set_page_config(
     page_title="Painel de Investimentos",
@@ -39,6 +40,7 @@ if db.banco_local_indevido():
 auth.exigir_login(exigir_sempre=db.usando_postgres())
 
 db.criar_schema()
+tema.aplicar_estilo()
 
 # Deixa números e tabelas legíveis em tela de celular.
 st.markdown(
@@ -125,7 +127,7 @@ def rotulo_investimento(inv) -> str:
 # --------------------------------------------------- página: investimentos ---
 
 def pagina_investimentos() -> None:
-    st.header("Investimentos")
+    tema.cabecalho("Investimentos", "Cadastro, aportes e resgates")
     mostrar_flash()
 
     investimentos = db.listar_investimentos()
@@ -506,17 +508,21 @@ def _acoes_investimento(inv) -> None:
 # ------------------------------------------------------------ página: painel ---
 
 def pagina_painel() -> None:
-    st.header("Painel")
-    mostrar_flash()
-
     anos = db.anos_disponiveis()
     ano_atual = datetime.now().year
-    ano = st.selectbox(
-        "Ano",
-        anos,
-        index=anos.index(ano_atual) if ano_atual in anos else len(anos) - 1,
-        key="painel_ano",
-    )
+
+    col_titulo, col_ano = st.columns([3, 1], vertical_alignment="bottom")
+    with col_titulo:
+        tema.cabecalho("Painel", "Quanto você tem e quanto rendeu")
+    with col_ano:
+        ano = st.selectbox(
+            "Ano",
+            anos,
+            index=anos.index(ano_atual) if ano_atual in anos else len(anos) - 1,
+            key="painel_ano",
+            label_visibility="collapsed",
+        )
+    mostrar_flash()
 
     lancamentos = db.listar_rendimentos(ano=ano)
     totais_mes = db.total_por_competencia(ano)
@@ -525,21 +531,48 @@ def pagina_painel() -> None:
     total_ano = sum(totais_mes.values())
     meses_com_lancamento = len(totais_mes)
     media_mensal = total_ano / meses_com_lancamento if meses_com_lancamento else 0.0
-    retorno_medio = (media_mensal / capital * 100) if capital else 0.0
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric(f"Total recebido em {ano}", md(formatar_real(total_ano)))
-    col2.metric(
-        "Média mensal",
-        md(formatar_real(media_mensal)),
-        help="Total recebido dividido pelos meses com lançamento no ano.",
+    # patrimônio e taxa do último mês fechado, os mesmos números da Evolução
+    rendimentos_todos: dict[str, float] = {}
+    for r in db.listar_rendimentos():
+        rendimentos_todos[r["competencia"]] = rendimentos_todos.get(
+            r["competencia"], 0.0
+        ) + float(r["valor"])
+    serie_patrimonio = patrimonio.serie_realizada(
+        db.capital_movimentado_por_mes(), rendimentos_todos
     )
-    col3.metric("Capital investido", md(formatar_real(capital)))
-    col4.metric(
-        "Retorno médio mensal",
-        formatar_taxa(retorno_medio),
-        help="Média mensal recebida sobre o capital dos investimentos ativos.",
+    mes_corrente = f"{datetime.now():%Y-%m}"
+    taxa_fechada, mes_base = patrimonio.taxa_ultimo_mes_fechado(
+        serie_patrimonio, mes_corrente
     )
+    patrimonio_atual = serie_patrimonio[-1].valor if serie_patrimonio else capital
+
+    tema.numero_heroi(
+        "Patrimônio",
+        formatar_real(patrimonio_atual),
+        nota=(
+            f"Capital aplicado de {formatar_real(capital)} mais o retorno acumulado"
+            if capital else ""
+        ),
+        variacao=(
+            f"{formatar_taxa(taxa_fechada)}&nbsp;em&nbsp;"
+            f"{db.formatar_competencia(mes_base)}"
+            if mes_base else ""
+        ),
+        sentido="alta" if taxa_fechada > 0 else "neutro",
+    )
+    st.write("")
+
+    col1, col2, col3 = st.columns(3)
+    with col1.container(border=True):
+        st.metric(f"Recebido em {ano}", md(formatar_real(total_ano)))
+        st.caption(f"{meses_com_lancamento} mês(es) com lançamento")
+    with col2.container(border=True):
+        st.metric("Média mensal", md(formatar_real(media_mensal)))
+        st.caption("Total do ano dividido pelos meses lançados")
+    with col3.container(border=True):
+        st.metric("Capital investido", md(formatar_real(capital)))
+        st.caption("Soma dos investimentos ativos, sem o retorno")
 
     if not lancamentos:
         st.info(
@@ -548,6 +581,7 @@ def pagina_painel() -> None:
         )
         return
 
+    st.write("")
     st.subheader("Rendimentos por mês")
     serie = pd.DataFrame(
         {
@@ -559,18 +593,25 @@ def pagina_painel() -> None:
     )
     grafico = (
         alt.Chart(serie)
-        .mark_bar(color="#2e7d32", cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+        .mark_bar(
+            color=tema.VERDE, cornerRadiusTopLeft=4, cornerRadiusTopRight=4, size=34,
+        )
         .encode(
             x=alt.X("Mês:N", sort=db.MESES, title=None),
-            y=alt.Y("Rendimento:Q", title="R$", axis=alt.Axis(format=",.0f")),
+            y=alt.Y(
+                "Rendimento:Q", title=None,
+                axis=alt.Axis(
+                    labelExpr="replace(format(datum.value, ',.0f'), ',', '.')"
+                ),
+            ),
             tooltip=[
-                alt.Tooltip("Mês:N"),
+                alt.Tooltip("Mês:N", title="Mês"),
                 alt.Tooltip("Rendimento:Q", format=",.2f", title="R$"),
             ],
         )
-        .properties(height=280)
+        .properties(height=260)
     )
-    st.altair_chart(grafico, width="stretch")
+    st.altair_chart(tema.eixo_limpo(grafico), width="stretch")
 
     st.subheader("Rendimento por investimento e mês")
     exibicao, estimado_total = _montar_matriz(ano, lancamentos)
@@ -648,7 +689,7 @@ def _estimativa_do_mes(inv, ano: int, mes: int) -> float | None:
 # ----------------------------------------------- página: lançar rendimento ---
 
 def pagina_lancamento() -> None:
-    st.header("Lançar rendimento")
+    tema.cabecalho("Lançar rendimento", "Quanto cada investimento rendeu no mês")
     mostrar_flash()
 
     mostrar_encerrados = st.checkbox(
@@ -767,7 +808,7 @@ def _competencia_sugerida(inv) -> str:
 # --------------------------------------------------------- página: exportar ---
 
 def pagina_exportar() -> None:
-    st.header("Exportar e backup")
+    tema.cabecalho("Exportar e backup", "Planilha do ano e cópia dos dados")
     mostrar_flash()
 
     anos = db.anos_disponiveis()
@@ -886,7 +927,7 @@ def _matriz_numerica(ano: int) -> pd.DataFrame:
 # ----------------------------------------------- página: evolução e projeção ---
 
 def pagina_evolucao() -> None:
-    st.header("Evolução do patrimônio")
+    tema.cabecalho("Evolução do patrimônio", "Realizado e projeção de 12 meses")
     mostrar_flash()
 
     rendimentos: dict[str, float] = {}
@@ -1013,7 +1054,8 @@ def pagina_evolucao() -> None:
         color=alt.Color(
             "Série:N",
             scale=alt.Scale(
-                domain=["Realizado", "Previsto"], range=["#2e7d32", "#9aa0a6"]
+                domain=["Realizado", "Previsto"],
+                range=[tema.VERDE, tema.CINZA_MARCA],
             ),
             legend=alt.Legend(title=None, orient="top"),
         ),
@@ -1028,8 +1070,10 @@ def pagina_evolucao() -> None:
             alt.Tooltip("Série:N", title="Série"),
         ],
     )
-    grafico = (base.mark_line(strokeWidth=2.5) + base.mark_point(size=45, filled=True))
-    st.altair_chart(grafico.properties(height=360), width="stretch")
+    grafico = (base.mark_line(strokeWidth=2) + base.mark_point(size=60, filled=True))
+    st.altair_chart(
+        tema.eixo_limpo(grafico.properties(height=360)), width="stretch"
+    )
 
     with st.expander("Ver os números mês a mês"):
         st.dataframe(
@@ -1061,7 +1105,7 @@ def pagina_evolucao() -> None:
 # --------------------------------------------------- página: energia solar ---
 
 def pagina_solar() -> None:
-    st.header("Energia solar")
+    tema.cabecalho("Energia solar", "Economia na conta de luz, mês a mês")
     mostrar_flash()
     st.caption(
         "A distribuidora não paga em dinheiro: o retorno é a economia na conta de luz. "
@@ -1296,7 +1340,7 @@ def _proxima_competencia_solar(inv, faturas) -> str:
 # -------------------------------------------------------- página: importar ---
 
 def pagina_importar() -> None:
-    st.header("Importar extratos do Tesouro Direto")
+    tema.cabecalho("Importar extratos", "Extratos analíticos do Tesouro Direto")
     mostrar_flash()
     st.caption(
         "Envie os extratos analíticos (.xlsx) baixados no Tesouro Direto / Nu "
@@ -1443,21 +1487,35 @@ def _bloco_importacao(titulo: str, lista) -> None:
 
 # ---------------------------------------------------------------- navegação ---
 
-PAGINAS = {
-    "Painel": pagina_painel,
-    "Investimentos": pagina_investimentos,
-    "Evolução": pagina_evolucao,
-    "Lançar rendimento": pagina_lancamento,
-    "Energia solar": pagina_solar,
-    "Importar extratos": pagina_importar,
-    "Exportar": pagina_exportar,
+NAVEGACAO = {
+    "Acompanhar": [
+        st.Page(pagina_painel, title="Painel",
+                icon=":material/dashboard:", default=True),
+        st.Page(pagina_evolucao, title="Evolução",
+                icon=":material/trending_up:"),
+    ],
+    "Registrar": [
+        st.Page(pagina_investimentos, title="Investimentos",
+                icon=":material/account_balance:"),
+        st.Page(pagina_lancamento, title="Lançar rendimento",
+                icon=":material/add_circle:"),
+        st.Page(pagina_solar, title="Energia solar",
+                icon=":material/solar_power:"),
+    ],
+    "Ferramentas": [
+        st.Page(pagina_importar, title="Importar extratos",
+                icon=":material/upload_file:"),
+        st.Page(pagina_exportar, title="Exportar e backup",
+                icon=":material/download:"),
+    ],
 }
 
-st.sidebar.title("📈 Investimentos")
-st.sidebar.caption("Controle mensal de rendimentos")
-escolha = st.sidebar.radio("Navegação", list(PAGINAS.keys()), label_visibility="collapsed")
-st.sidebar.divider()
-st.sidebar.caption(f"Banco: {db.descricao_banco()}")
+pagina = st.navigation(NAVEGACAO)
+
+with st.sidebar:
+    st.divider()
+    st.markdown("**📈 Investimentos**")
+    st.caption(f"Controle mensal de rendimentos · {db.descricao_banco()}")
 auth.botao_sair()
 
-PAGINAS[escolha]()
+pagina.run()
