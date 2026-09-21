@@ -87,11 +87,21 @@ def usando_postgres() -> bool:
     return engine().dialect.name == "postgresql"
 
 
+def rodando_na_nuvem() -> bool:
+    """True quando o app está publicado no Streamlit Community Cloud."""
+    return Path("/mount/src").exists() or bool(os.environ.get("STREAMLIT_RUNTIME_ENV"))
+
+
 def descricao_banco() -> str:
     """Texto curto para mostrar na tela: onde os dados estão."""
     if usando_postgres():
         return "PostgreSQL (nuvem)"
     return CAMINHO_DB.name
+
+
+def banco_local_indevido() -> bool:
+    """App publicado usando arquivo local: os dados reais não estão sendo lidos."""
+    return rodando_na_nuvem() and not usando_postgres()
 
 
 def _consultar(sql: str, **params) -> list[dict]:

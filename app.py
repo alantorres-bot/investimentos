@@ -25,6 +25,16 @@ st.set_page_config(
     initial_sidebar_state="auto",
 )
 
+if db.banco_local_indevido():
+    st.error(
+        "**Configuração incompleta: o app não está conectado ao banco na nuvem.** "
+        "Falta a linha `DATABASE_URL` nos secrets do aplicativo — sem ela o app cria "
+        "um banco vazio a cada reinício, e os seus dados (que estão no Supabase, "
+        "intactos) não aparecem. Vá em *Manage app → Settings → Secrets*, cole as três "
+        "linhas de configuração e reinicie o app."
+    )
+    st.stop()
+
 # No app publicado (banco na nuvem) a senha é obrigatória; localmente é opcional.
 auth.exigir_login(exigir_sempre=db.usando_postgres())
 
