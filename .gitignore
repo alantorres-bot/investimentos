@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+rendimentos.db
+backups/
+*.xlsx
+*.bak
+.streamlit/secrets.toml
